@@ -99,11 +99,16 @@ struct AuthView: View {
                     
                     // Forgot Password (sign in only)
                     if !isSignUp {
-                        Button(action: { authViewModel.showForgotPassword = true }) {
-                            Text("Forgot Password?")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundColor(VoyaraColors.primary)
+                        HStack {
+                            Spacer()
+                            Button(action: { authViewModel.showForgotPassword = true }) {
+                                Text("Forgot Password?")
+                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                    .foregroundColor(VoyaraColors.primary)
+                            }
                         }
+                        .padding(.horizontal, VoyaraTheme.spacing24)
+                        .padding(.top, -VoyaraTheme.spacing8) // Adjust spacing to look better
                     }
                     
                     // Actions

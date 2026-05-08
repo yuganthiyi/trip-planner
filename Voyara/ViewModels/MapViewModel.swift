@@ -15,6 +15,10 @@ class MapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var isLoading: Bool = false
     @Published var searchText: String = ""
     @Published var selectedCategory: PlaceType? = nil
+    @Published var searchedAreaWeather: WeatherInfo? = nil
+    @Published var searchedAreaActivities: [WeatherActivity] = []
+    @Published var isLoadingWeather: Bool = false
+    @Published var routes: [MKRoute] = []
     
     private let locationManager = CLLocationManager()
     
@@ -37,7 +41,6 @@ class MapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         requestLocationPermission()
-        generateSamplePlaces()
     }
     
     func requestLocationPermission() {
@@ -75,116 +78,116 @@ class MapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func fetchPlacesForTrip(_ trip: Trip) {
         isLoading = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.generateSamplePlaces()
-            self.isLoading = false
+        
+        Task {
+            var annotations: [PlaceAnnotation] = []
+            
+            // 1. Add annotations from activities
+            let allActivities = trip.itineraries.flatMap { $0.activities }
+            let activityAnnotations = allActivities.compactMap { activity -> PlaceAnnotation? in
+                guard let coord = activity.coordinate else { return nil }
+                return PlaceAnnotation(
+                    id: activity.id,
+                    name: activity.title,
+                    description: activity.description ?? activity.location ?? "",
+                    latitude: coord.latitude,
+                    longitude: coord.longitude,
+                    type: .landmark,
+                    rating: 0,
+                    distance: 0,
+                    reviews: [],
+                    images: [],
+                    hours: "Hours not specified",
+                    address: activity.location ?? "",
+                    website: nil
+                )
+            }
+            annotations.append(contentsOf: activityAnnotations)
+            
+            // 2. Add annotations from trip destinations (if not already represented by activities)
+            let destinations = trip.destinations ?? [trip.destination]
+            for dest in destinations {
+                // Skip if we already have an activity with this location name (simple heuristic)
+                if activityAnnotations.contains(where: { $0.address.localizedCaseInsensitiveContains(dest) || $0.name.localizedCaseInsensitiveContains(dest) }) {
+                    continue
+                }
+                
+                // Geocode the destination string
+                if let placemarks = try? await CLGeocoder().geocodeAddressString(dest),
+                   let location = placemarks.first?.location {
+                    let coord = location.coordinate
+                    let destAnnotation = PlaceAnnotation(
+                        id: UUID().uuidString,
+                        name: dest,
+                        description: "Trip Destination",
+                        latitude: coord.latitude,
+                        longitude: coord.longitude,
+                        type: .landmark,
+                        rating: 0,
+                        distance: 0,
+                        reviews: [],
+                        images: [],
+                        hours: "Trip level destination",
+                        address: dest,
+                        website: nil
+                    )
+                    annotations.append(destAnnotation)
+                }
+            }
+            
+            await MainActor.run {
+                self.places = annotations
+                self.isLoading = false
+                
+                // Adjust camera to fit annotations
+                if let first = annotations.first {
+                    self.region = MapRegion(
+                        latitude: first.latitude,
+                        longitude: first.longitude,
+                        latitudeDelta: 0.2,
+                        longitudeDelta: 0.2
+                    )
+                    
+                    // Fetch weather for the first location
+                    self.fetchWeatherForArea(latitude: first.latitude, longitude: first.longitude, name: first.name)
+                }
+                
+                // Fetch routes between points
+                self.fetchRoutes()
+            }
         }
     }
     
-    private func generateSamplePlaces() {
-        let samplePlaces = [
-            PlaceAnnotation(
-                id: "1",
-                name: "Eiffel Tower",
-                description: "Iconic iron lattice tower on the Champ de Mars, named after engineer Gustave Eiffel. One of the most recognizable structures in the world.",
-                latitude: 48.8584,
-                longitude: 2.2945,
-                type: .landmark,
-                rating: 4.8,
-                distance: 2.5,
-                reviews: [
-                    PlaceReview(author: "Emma W.", rating: 5.0, text: "Absolutely breathtaking, especially at night! Must visit.", date: Date().addingTimeInterval(-86400 * 5)),
-                    PlaceReview(author: "James L.", rating: 4.5, text: "Amazing views but can be crowded. Book tickets in advance.", date: Date().addingTimeInterval(-86400 * 12)),
-                ],
-                hours: "9:30 AM - 11:45 PM",
-                address: "Champ de Mars, 5 Av. Anatole France, 75007 Paris",
-                website: "https://www.toureiffel.paris"
-            ),
-            PlaceAnnotation(
-                id: "2",
-                name: "Louvre Museum",
-                description: "The world's largest art museum and a historic monument in Paris. Home to the Mona Lisa and thousands of works of art.",
-                latitude: 48.8606,
-                longitude: 2.3376,
-                type: .attraction,
-                rating: 4.7,
-                distance: 0.8,
-                reviews: [
-                    PlaceReview(author: "Sophie M.", rating: 5.0, text: "Could spend days here. The art collection is unmatched.", date: Date().addingTimeInterval(-86400 * 3)),
-                ],
-                hours: "9:00 AM - 6:00 PM",
-                address: "Rue de Rivoli, 75001 Paris",
-                website: "https://www.louvre.fr"
-            ),
-            PlaceAnnotation(
-                id: "3",
-                name: "Le Comptoir du Panthéon",
-                description: "Charming Parisian brasserie serving classic French cuisine with views of the Panthéon.",
-                latitude: 48.8462,
-                longitude: 2.3461,
-                type: .restaurant,
-                rating: 4.6,
-                distance: 1.2,
-                reviews: [
-                    PlaceReview(author: "Marco P.", rating: 4.5, text: "Excellent French cuisine with great atmosphere.", date: Date().addingTimeInterval(-86400 * 7)),
-                ],
-                hours: "12:00 PM - 11:00 PM",
-                address: "5 Rue Soufflot, 75005 Paris"
-            ),
-            PlaceAnnotation(
-                id: "4",
-                name: "Luxembourg Gardens",
-                description: "Beautiful 17th-century gardens covering 23 hectares. Perfect for a relaxing afternoon stroll.",
-                latitude: 48.8462,
-                longitude: 2.3372,
-                type: .park,
-                rating: 4.8,
-                distance: 1.5,
-                hours: "7:30 AM - 9:30 PM",
-                address: "Rue de Médicis, 75006 Paris"
-            ),
-            PlaceAnnotation(
-                id: "5",
-                name: "Hôtel Plaza Athénée",
-                description: "Legendary 5-star luxury hotel on Avenue Montaigne, the heart of Parisian haute couture.",
-                latitude: 48.8660,
-                longitude: 2.3025,
-                type: .hotel,
-                rating: 4.9,
-                distance: 3.0,
-                hours: "24 Hours",
-                address: "25 Av. Montaigne, 75008 Paris",
-                website: "https://www.plaza-athenee-paris.com"
-            ),
-            PlaceAnnotation(
-                id: "6",
-                name: "Notre-Dame Cathedral",
-                description: "Medieval Catholic cathedral and UNESCO World Heritage Site. A masterpiece of French Gothic architecture.",
-                latitude: 48.8530,
-                longitude: 2.3499,
-                type: .landmark,
-                rating: 4.7,
-                distance: 0.5,
-                hours: "Currently under restoration",
-                address: "6 Parvis Notre-Dame, 75004 Paris"
-            ),
-            PlaceAnnotation(
-                id: "7",
-                name: "Sacré-Cœur Basilica",
-                description: "Romano-Byzantine basilica at the summit of Montmartre, the highest point in Paris.",
-                latitude: 48.8867,
-                longitude: 2.3431,
-                type: .landmark,
-                rating: 4.7,
-                distance: 4.2,
-                hours: "6:00 AM - 10:30 PM",
-                address: "35 Rue du Chevalier de la Barre, 75018 Paris"
-            ),
-        ]
+    func fetchRoutes() {
+        guard places.count > 1 else {
+            self.routes = []
+            return
+        }
         
-        self.places = samplePlaces
+        let coordinates = places.map { $0.coordinate }
+        var fetchedRoutes: [MKRoute] = []
+        let group = DispatchGroup()
+        
+        for i in 0..<(coordinates.count - 1) {
+            group.enter()
+            let request = MKDirections.Request()
+            request.source = MKMapItem(placemark: MKPlacemark(coordinate: coordinates[i]))
+            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: coordinates[i+1]))
+            request.transportType = .automobile
+            
+            let directions = MKDirections(request: request)
+            directions.calculate { response, error in
+                if let route = response?.routes.first {
+                    fetchedRoutes.append(route)
+                }
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            self.routes = fetchedRoutes
+        }
     }
-    
     func selectPlace(_ place: PlaceAnnotation) {
         selectedPlace = place
     }
@@ -200,7 +203,7 @@ class MapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // MARK: - Real Search
     func searchRealPlaces(query: String) {
         guard !query.isEmpty else {
-            generateSamplePlaces()
+            self.places = []
             return
         }
         
@@ -238,9 +241,44 @@ class MapViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                 // Recenter map on first result
                 if let first = self?.places.first {
                     self?.region = MapRegion(latitude: first.latitude, longitude: first.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05)
+                    
+                    // Also fetch weather for the searched area
+                    self?.fetchWeatherForArea(latitude: first.latitude, longitude: first.longitude, name: query)
                 }
             }
         }
+    }
+    
+    // MARK: - Weather for Searched Area
+    func fetchWeatherForArea(latitude: Double, longitude: Double, name: String? = nil) {
+        isLoadingWeather = true
+        
+        Task {
+            let location = CLLocation(latitude: latitude, longitude: longitude)
+            let result = await VoyaraWeatherService.shared.fetchWeather(for: location)
+            
+            let activities: [WeatherActivity]
+            if let current = result?.current {
+                activities = await VoyaraWeatherService.shared.generateActivities(for: current)
+            } else {
+                activities = []
+            }
+            
+            await MainActor.run {
+                if let result = result {
+                    var weather = result.current
+                    weather.locationName = name
+                    self.searchedAreaWeather = weather
+                    self.searchedAreaActivities = activities
+                }
+                self.isLoadingWeather = false
+            }
+        }
+    }
+    
+    // MARK: - Weather for specific place
+    func fetchWeatherForPlace(_ place: PlaceAnnotation) {
+        fetchWeatherForArea(latitude: place.latitude, longitude: place.longitude, name: place.name)
     }
 }
 

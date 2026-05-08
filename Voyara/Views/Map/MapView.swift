@@ -3,6 +3,7 @@ import MapKit
 
 struct MapView: View {
     @EnvironmentObject var mapViewModel: MapViewModel
+    @EnvironmentObject var categoryViewModel: CategoryViewModel
     @State private var position: MapCameraPosition = .region(
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522),
@@ -26,10 +27,10 @@ struct MapView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Map(position: $position) {
-                // Draw lines connecting the places
-                if filteredPlaces.count > 1 {
-                    MapPolyline(coordinates: filteredPlaces.map { $0.coordinate })
-                        .stroke(VoyaraColors.primary, lineWidth: 3)
+                // Draw actual road routes connecting the places
+                ForEach(mapViewModel.routes, id: \.self) { route in
+                    MapPolyline(route)
+                        .stroke(VoyaraColors.primary, lineWidth: 5)
                 }
                 
                 ForEach(filteredPlaces) { place in
@@ -96,6 +97,51 @@ struct MapView: View {
             }
             .padding(.horizontal, VoyaraTheme.spacing24)
             .padding(.top, VoyaraTheme.spacing8)
+            
+            // Weather badge overlay (bottom-left)
+            if let weather = mapViewModel.searchedAreaWeather {
+                VStack {
+                    Spacer()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Image(systemName: weather.conditionIcon)
+                                    .font(.system(size: 16))
+                                    .foregroundColor(weather.conditionColor)
+                                Text("\(Int(weather.temperature))°C")
+                                    .font(VoyaraTypography.headlineSmall)
+                                    .foregroundColor(VoyaraColors.text)
+                            }
+                            Text(weather.condition)
+                                .font(VoyaraTypography.captionSmall)
+                                .foregroundColor(VoyaraColors.textSecondary)
+                            if let name = weather.locationName {
+                                Text(name)
+                                    .font(VoyaraTypography.captionSmall)
+                                    .foregroundColor(VoyaraColors.primary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(VoyaraTheme.spacing12)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(VoyaraTheme.mediumRadius)
+                        .shadow(radius: 4)
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, VoyaraTheme.spacing24)
+                    .padding(.bottom, VoyaraTheme.spacing32)
+                }
+            }
+            
+            // Discovery Overlay
+            if selectedPlace == nil && searchText.isEmpty {
+                VStack {
+                    Spacer()
+                    DiscoveryOverlay(mapVM: mapViewModel, position: $position, searchText: $searchText)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .sheet(item: $selectedPlace) { place in
             PlaceDetailView(place: place)
@@ -105,21 +151,85 @@ struct MapView: View {
     }
 }
 
+// MARK: - Discovery Overlay
+struct DiscoveryOverlay: View {
+    @ObservedObject var mapVM: MapViewModel
+    @EnvironmentObject var categoryViewModel: CategoryViewModel
+    @Binding var position: MapCameraPosition
+    @Binding var searchText: String
+    
+    var body: some View {
+        let vm = mapVM
+        let suggestions = categoryViewModel.suggestedDestinationsWithColors
+        VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
+            HStack {
+                Text("Suggested Destinations")
+                    .font(VoyaraTypography.headlineSmall)
+                    .foregroundColor(VoyaraColors.text)
+                Spacer()
+                Image(systemName: "sparkles")
+                    .foregroundColor(VoyaraColors.primary)
+            }
+            .padding(.horizontal, VoyaraTheme.spacing24)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: VoyaraTheme.spacing16) {
+                    ForEach(suggestions, id: \.destination.id) { pair in
+                        Button(action: {
+                            withAnimation(.spring()) {
+                                position = .region(MKCoordinateRegion(
+                                    center: CLLocationCoordinate2D(latitude: pair.destination.latitude, longitude: pair.destination.longitude),
+                                    span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                                ))
+                            }
+                            searchText = pair.destination.name
+                            vm.searchRealPlaces(query: pair.destination.name)
+                        }) {
+                            DestinationSuggestionCard(destination: pair.destination, color: pair.color)
+                        }
+                        .buttonStyle(.plain)
+                        .onAppear {
+                            fetchWeatherForDestination(pair.destination)
+                        }
+                    }
+                }
+                .padding(.horizontal, VoyaraTheme.spacing24)
+            }
+        }
+        .padding(.vertical, VoyaraTheme.spacing20)
+        .background(.ultraThinMaterial)
+        .cornerRadius(32, corners: [.topLeft, .topRight])
+        .shadow(color: Color.black.opacity(0.1), radius: 15, x: 0, y: -5)
+    }
+    
+    private func fetchWeatherForDestination(_ destination: CategoryDestination) {
+        if mapVM.searchedAreaWeather == nil {
+            mapVM.fetchWeatherForArea(latitude: destination.latitude, longitude: destination.longitude, name: destination.name)
+        }
+    }
+}
+
 // MARK: - Place Detail View
 struct PlaceDetailView: View {
     let place: PlaceAnnotation
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var tripViewModel: TripViewModel
+    @EnvironmentObject var mapViewModel: MapViewModel
     @State private var isSaved = false
     @State private var showTripSelector = false
+    @State private var showCreateNewTrip = false
+    @State private var placeWeather: WeatherInfo? = nil
+    @State private var placeActivities: [WeatherActivity] = []
+    @State private var isLoadingWeather = true
     
     // Sample images based on type
     private var headerImageName: String {
         switch place.type {
-        case .landmark, .attraction: return "photo.artframe"
-        case .restaurant: return "fork.knife"
-        case .hotel: return "building.fill"
-        default: return "photo"
+        case .landmark: return "mountain.2.fill"
+        case .attraction: return "camera.shutter.button.fill"
+        case .restaurant: return "fork.knife.circle.fill"
+        case .hotel: return "bed.double.fill"
+        default: return "mappin.circle.fill"
         }
     }
     
@@ -209,6 +319,87 @@ struct PlaceDetailView: View {
                                 .foregroundColor(VoyaraColors.textSecondary)
                         }
                         
+                        // Weather Section
+                        VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
+                            Text("Weather at Location")
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                .foregroundColor(VoyaraColors.text)
+                            
+                            if isLoadingWeather {
+                                HStack(spacing: VoyaraTheme.spacing8) {
+                                    ProgressView().scaleEffect(0.8)
+                                    Text("Loading weather...")
+                                        .font(VoyaraTypography.bodySmall)
+                                        .foregroundColor(VoyaraColors.textSecondary)
+                                }
+                                .padding(VoyaraTheme.spacing12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(VoyaraColors.surfaceVariant)
+                                .cornerRadius(VoyaraTheme.mediumRadius)
+                            } else if let weather = placeWeather {
+                                VStack(spacing: VoyaraTheme.spacing12) {
+                                    // Current conditions
+                                    HStack(spacing: VoyaraTheme.spacing12) {
+                                        Image(systemName: weather.conditionIcon)
+                                            .font(.system(size: 32))
+                                            .foregroundColor(weather.conditionColor)
+                                        
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("\(Int(weather.temperature))°C")
+                                                .font(VoyaraTypography.displayMedium)
+                                                .foregroundColor(VoyaraColors.text)
+                                            Text(weather.condition)
+                                                .font(VoyaraTypography.bodySmall)
+                                                .foregroundColor(VoyaraColors.textSecondary)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        VStack(alignment: .trailing, spacing: 4) {
+                                            Label("\(Int(weather.humidity))%", systemImage: "drop.fill")
+                                            Label("\(Int(weather.windSpeed)) km/h", systemImage: "wind")
+                                        }
+                                        .font(VoyaraTypography.captionSmall)
+                                        .foregroundColor(VoyaraColors.textSecondary)
+                                    }
+                                    .padding(VoyaraTheme.spacing12)
+                                    .background(VoyaraColors.surfaceVariant)
+                                    .cornerRadius(VoyaraTheme.mediumRadius)
+                                    
+                                    // Activity suggestions
+                                    if !placeActivities.isEmpty {
+                                        Text("Suggested Activities")
+                                            .font(VoyaraTypography.labelMedium)
+                                            .foregroundColor(VoyaraColors.text)
+                                        
+                                        ForEach(placeActivities.prefix(3)) { activity in
+                                            HStack(spacing: VoyaraTheme.spacing8) {
+                                                Image(systemName: activity.icon)
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(.white)
+                                                    .frame(width: 28, height: 28)
+                                                    .background(activity.suitabilityColor)
+                                                    .cornerRadius(8)
+                                                
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(activity.title)
+                                                        .font(VoyaraTypography.bodySmall)
+                                                        .foregroundColor(VoyaraColors.text)
+                                                    Text(activity.isOutdoor ? "Outdoor" : "Indoor")
+                                                        .font(VoyaraTypography.captionSmall)
+                                                        .foregroundColor(VoyaraColors.textSecondary)
+                                                }
+                                                Spacer()
+                                            }
+                                            .padding(VoyaraTheme.spacing8)
+                                            .background(VoyaraColors.surfaceVariant)
+                                            .cornerRadius(VoyaraTheme.smallRadius)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
                         // Reviews
                         VStack(alignment: .leading, spacing: VoyaraTheme.spacing16) {
                             Text("Reviews (\(Int.random(in: 100...800)))")
@@ -251,7 +442,7 @@ struct PlaceDetailView: View {
                         Spacer(minLength: 100) // Space for bottom button
                     }
                     .padding(VoyaraTheme.spacing24)
-                    .background(Color.white)
+                    .background(VoyaraColors.surface)
                     .cornerRadius(32, corners: [.topLeft, .topRight])
                     .offset(y: -30)
                 }
@@ -318,7 +509,42 @@ struct PlaceDetailView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Cancel") { showTripSelector = false }.foregroundColor(VoyaraColors.primary)
                     }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: { showCreateNewTrip = true }) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(VoyaraColors.primary)
+                        }
+                    }
                 }
+                .sheet(isPresented: $showCreateNewTrip) {
+                    CreateTripView(initialDestination: place.address)
+                }
+            }
+        }
+        .onAppear {
+            fetchPlaceWeather()
+        }
+    }
+    
+    private func fetchPlaceWeather() {
+        isLoadingWeather = true
+        Task {
+            let location = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let result = await VoyaraWeatherService.shared.fetchWeather(for: location)
+            
+            let activities: [WeatherActivity]
+            if let current = result?.current {
+                activities = await VoyaraWeatherService.shared.generateActivities(for: current)
+            } else {
+                activities = []
+            }
+            
+            await MainActor.run {
+                if let result = result {
+                    placeWeather = result.current
+                    placeActivities = activities
+                }
+                isLoadingWeather = false
             }
         }
     }

@@ -2,7 +2,7 @@
 
 A comprehensive SwiftUI-based trip planning application for iOS built with Firebase backend, designed to help users plan, track, and manage their travel adventures.
 
-## 📋 Project Overview
+##  Project Overview
 
 **App Name:** Voyara  
 **Language:** Swift / SwiftUI  
@@ -11,7 +11,7 @@ A comprehensive SwiftUI-based trip planning application for iOS built with Fireb
 **State Management:** @StateObject, @EnvironmentObject  
 **Testing:** XCTest (Unit Tests + UI Tests)  
 
-## 🏗️ Project Structure
+##  Project Structure
 
 ```
 Voyara/
@@ -47,16 +47,16 @@ Voyara/
 ├── Utilities/
 │   ├── MockData.swift             # Preview & testing data
 │   └── Extensions.swift           # Helper extensions
-├── GoogleService-Info.plist       # Firebase configuration ✅
+├── GoogleService-Info.plist       # Firebase configuration 
 ├── Voyara.xcconfig                # Build configuration & API keys
 ├── SETUP_GUIDE.swift              # Setup instructions
 ├── VoyaraApp.swift                # App entry point
 └── ContentView.swift              # Deprecated (use MainTabView)
 ```
 
-## ✨ Features Implemented
+##  Features Implemented
 
-### ✅ Completed
+### Completed
 - **Design System**
   - Complete color palette with dark mode support
   - Typography system (display, headline, body, label, caption)
@@ -116,7 +116,7 @@ Voyara/
 - Budget charts and visualizations
 - Advanced trip features
 
-## 🔧 Configuration
+##  Configuration
 
 ### API Keys
 Edit `Voyara.xcconfig`:
@@ -135,7 +135,7 @@ WEATHER_API_KEY = YOUR_OPENWEATHERMAP_API_KEY_HERE
 - Interface: SwiftUI
 - Language: Swift
 
-## 📦 Dependencies (To Be Added)
+##  Dependencies (To Be Added)
 
 ### Required
 - **Firebase iOS SDK**
@@ -149,7 +149,7 @@ WEATHER_API_KEY = YOUR_OPENWEATHERMAP_API_KEY_HERE
 - Lottie for onboarding animations
 - SDWebImageSwiftUI for image caching
 
-## 🎨 Design System
+##  Design System
 
 ### Colors
 - **Primary:** Vibrant Blue (#3399FF)
@@ -166,7 +166,7 @@ WEATHER_API_KEY = YOUR_OPENWEATHERMAP_API_KEY_HERE
 - Label: 12-14pt Medium
 - Caption: 10-11pt Regular
 
-## 🔐 Privacy & Capabilities
+##  Privacy & Capabilities
 
 ### Required Info.plist Entries
 ```xml
@@ -190,7 +190,7 @@ WEATHER_API_KEY = YOUR_OPENWEATHERMAP_API_KEY_HERE
 - ✓ Associated Domains (deep links)
 - ✓ HealthKit (optional)
 
-## 📱 Views & Navigation Flow
+##  Views & Navigation Flow
 
 ### Authentication
 ```
@@ -229,7 +229,7 @@ MainTabView
     └── Sign out
 ```
 
-## 🧪 Testing
+##  Testing
 
 ### Test Coverage
 - ✓ AuthViewModel (sign in/up validation)
@@ -242,7 +242,7 @@ MainTabView
 - Preview providers on all Views
 - Mock data for testing
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Xcode 15.0 or later
@@ -257,7 +257,7 @@ MainTabView
 5. Enable required capabilities
 6. Build and run
 
-## 📝 Code Standards
+##  Code Standards
 
 - No force unwraps (`!`) - use guard/if let
 - All async code uses async/await
@@ -268,7 +268,7 @@ MainTabView
 - Error handling with custom error enums
 - Dark mode support throughout
 
-## 🔄 State Management
+##  State Management
 
 ### Observation Pattern
 - `AuthViewModel` - Global auth state
@@ -282,7 +282,7 @@ MainTabView
 @EnvironmentObject var tripViewModel: TripViewModel
 ```
 
-## 📊 Data Models Hierarchy
+##  Data Models Hierarchy
 
 ```
 User
@@ -317,7 +317,7 @@ PackingItem
 └── weather-suggested flag
 ```
 
-## 🎯 Next Steps for Development
+##  Next Steps for Development
 
 1. **Firebase Integration** (Priority 1)
    - Implement AuthService methods
@@ -343,7 +343,7 @@ PackingItem
    - Localization (i18n)
    - Accessibility improvements
 
-## 📄 Version Info
+##  Version Info
 
 - **App Version:** 1.0.0
 - **Build:** 1
@@ -351,7 +351,7 @@ PackingItem
 - **Age Rating:** 4+
 - **Localization:** English (primary)
 
-## 📞 Support
+##  Support
 
 For setup issues, refer to:
 1. SETUP_GUIDE.swift
@@ -361,5 +361,5 @@ For setup issues, refer to:
 
 ---
 
-**Status:** ✅ Development Foundation Complete  
+**Status:** Development Foundation Complete  
 **Next:** Integrate Firebase SDK and implement authentication

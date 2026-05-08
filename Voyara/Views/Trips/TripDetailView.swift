@@ -1,14 +1,29 @@
 import SwiftUI
 
+struct ActivityEditPair: Identifiable {
+    let id: String
+    let activity: ItineraryActivity
+    let dayId: String
+    
+    init(activity: ItineraryActivity, dayId: String) {
+        self.id = activity.id
+        self.activity = activity
+        self.dayId = dayId
+    }
+}
+
 struct TripDetailView: View {
     let trip: Trip
     @EnvironmentObject var tripViewModel: TripViewModel
+    @EnvironmentObject var mapViewModel: MapViewModel
     @State private var selectedTab = 0
     @State private var showAddActivity = false
     @State private var showAddExpense = false
     @State private var showMap = false
     @State private var showOptimizer = false
     @State private var showSharing = false
+    @State private var editingActivity: ActivityEditPair?
+    @State private var editingPackingItem: PackingItem?
     @Environment(\.dismiss) var dismiss
     
     var currentTrip: Trip {
@@ -29,6 +44,7 @@ struct TripDetailView: View {
                     mapTab.tag(4)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut(duration: 0.25), value: selectedTab)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -47,6 +63,12 @@ struct TripDetailView: View {
         .sheet(isPresented: $showAddExpense) { AddExpenseView(trip: currentTrip) }
         .sheet(isPresented: $showSharing) { TripSharingView(trip: currentTrip) }
         .sheet(isPresented: $showOptimizer) { OptimizerView(trip: currentTrip) }
+        .sheet(item: $editingActivity) { pair in
+            EditActivityView(trip: currentTrip, activity: pair.activity, dayId: pair.dayId)
+        }
+        .sheet(item: $editingPackingItem) { item in
+            EditPackingItemView(item: item, trip: currentTrip)
+        }
         .fullScreenCover(isPresented: $showMap) {
             NavigationStack {
                 MapView()
@@ -100,13 +122,15 @@ struct TripDetailView: View {
     private var itineraryTab: some View {
         ScrollView {
             VStack(spacing: VoyaraTheme.spacing16) {
-                let days = tripViewModel.itineraryDaysForTrip(trip)
+                let days = tripViewModel.itineraryDaysForTrip(currentTrip)
                 if days.isEmpty || days.allSatisfy({ $0.activities.isEmpty }) {
                     emptyState(icon: "calendar.badge.plus", title: "No Activities", subtitle: "Add activities to plan your days")
                 } else {
                     ForEach(days) { day in
                         if !day.activities.isEmpty {
-                            DaySection(day: day, trip: currentTrip)
+                            DaySection(day: day, trip: currentTrip, onEditActivity: { act, dId in
+                                editingActivity = ActivityEditPair(activity: act, dayId: dId)
+                            })
                         }
                     }
                 }
@@ -135,27 +159,29 @@ struct TripDetailView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("Total Budget").font(VoyaraTypography.bodySmall).foregroundColor(VoyaraColors.textSecondary)
-                                Text("$\(NSDecimalNumber(decimal: trip.budget).intValue)").font(VoyaraTypography.displayLarge).foregroundColor(VoyaraColors.text)
+                                Text("$\(NSDecimalNumber(decimal: currentTrip.budget).intValue)").font(VoyaraTypography.displayLarge).foregroundColor(VoyaraColors.text)
                             }
                             Spacer()
-                            CircularProgressView(progress: tripViewModel.budgetPercentageUsed(for: trip) / 100, lineWidth: 6, size: 56, color: budgetColor)
-                                .overlay(Text("\(Int(tripViewModel.budgetPercentageUsed(for: trip)))%").font(VoyaraTypography.captionSmall).foregroundColor(VoyaraColors.text))
+                            CircularProgressView(progress: tripViewModel.budgetPercentageUsed(for: currentTrip) / 100, lineWidth: 6, size: 56, color: budgetColor)
+                                .overlay(Text("\(Int(tripViewModel.budgetPercentageUsed(for: currentTrip)))%").font(VoyaraTypography.captionSmall).foregroundColor(VoyaraColors.text))
                         }
                         HStack {
-                            Label("Spent: $\(NSDecimalNumber(decimal: trip.budget - tripViewModel.budgetRemainingForTrip(trip)).intValue)", systemImage: "arrow.up.circle").foregroundColor(VoyaraColors.error)
+                            Label("Spent: $\(NSDecimalNumber(decimal: currentTrip.budget - tripViewModel.budgetRemainingForTrip(currentTrip)).intValue)", systemImage: "arrow.up.circle").foregroundColor(VoyaraColors.error)
                             Spacer()
-                            Label("Left: $\(NSDecimalNumber(decimal: tripViewModel.budgetRemainingForTrip(trip)).intValue)", systemImage: "arrow.down.circle").foregroundColor(VoyaraColors.success)
+                            Label("Left: $\(NSDecimalNumber(decimal: tripViewModel.budgetRemainingForTrip(currentTrip)).intValue)", systemImage: "arrow.down.circle").foregroundColor(VoyaraColors.success)
                         }.font(VoyaraTypography.labelSmall)
                     }
                 }
                 
                 // Expenses
-                let expenses = tripViewModel.expensesForTrip(trip)
+                let expenses = tripViewModel.expensesForTrip(currentTrip)
                 if expenses.isEmpty {
                     emptyState(icon: "creditcard", title: "No Expenses", subtitle: "Track your spending")
                 } else {
                     ForEach(expenses) { expense in
-                        ExpenseRow(expense: expense)
+                        ExpenseRow(expense: expense, onDelete: {
+                            tripViewModel.deleteExpense(expense, from: currentTrip)
+                        })
                     }
                 }
                 
@@ -171,7 +197,7 @@ struct TripDetailView: View {
     }
     
     private var budgetColor: Color {
-        let pct = tripViewModel.budgetPercentageUsed(for: trip)
+        let pct = tripViewModel.budgetPercentageUsed(for: currentTrip)
         if pct > 90 { return VoyaraColors.error }
         if pct > 70 { return VoyaraColors.warning }
         return VoyaraColors.success
@@ -181,12 +207,12 @@ struct TripDetailView: View {
     private var packingTab: some View {
         ScrollView {
             VStack(spacing: VoyaraTheme.spacing16) {
-                let progress = tripViewModel.packingProgressForTrip(trip)
+                let progress = tripViewModel.packingProgressForTrip(currentTrip)
                 VoyaraCard {
                     HStack {
                         VStack(alignment: .leading) {
                             Text("Packing Progress").font(VoyaraTypography.headlineSmall).foregroundColor(VoyaraColors.text)
-                            Text("\(tripViewModel.packingItemsForTrip(trip).filter { $0.isPacked }.count)/\(tripViewModel.packingItemsForTrip(trip).count) items packed")
+                            Text("\(tripViewModel.packingItemsForTrip(currentTrip).filter { $0.isPacked }.count)/\(tripViewModel.packingItemsForTrip(currentTrip).count) items packed")
                                 .font(VoyaraTypography.bodySmall).foregroundColor(VoyaraColors.textSecondary)
                         }
                         Spacer()
@@ -195,14 +221,23 @@ struct TripDetailView: View {
                     }
                 }
                 
-                let grouped = tripViewModel.groupedPackingItems(for: trip)
+                let grouped = tripViewModel.groupedPackingItems(for: currentTrip)
                 ForEach(grouped, id: \.key) { group in
                     VStack(alignment: .leading, spacing: VoyaraTheme.spacing8) {
                         Text(group.key).font(VoyaraTypography.headlineSmall).foregroundColor(VoyaraColors.text)
                         ForEach(group.items) { item in
-                            PackingItemRow(item: item) {
-                                tripViewModel.togglePackingItem(item, in: currentTrip)
-                            }
+                            PackingItemRow(
+                                item: item,
+                                onToggle: {
+                                    tripViewModel.togglePackingItem(item, in: currentTrip)
+                                },
+                                onDelete: {
+                                    tripViewModel.deletePackingItem(item, from: currentTrip)
+                                },
+                                onEdit: {
+                                    editingPackingItem = item
+                                }
+                            )
                         }
                     }
                 }
@@ -215,7 +250,7 @@ struct TripDetailView: View {
     private var progressTab: some View {
         ScrollView {
             VStack(spacing: VoyaraTheme.spacing16) {
-                let pct = tripViewModel.tripCompletionPercentage(trip)
+                let pct = tripViewModel.tripCompletionPercentage(currentTrip)
                 VoyaraCard {
                     VStack(spacing: VoyaraTheme.spacing16) {
                         CircularProgressView(progress: pct / 100, lineWidth: 10, size: 100, color: VoyaraColors.primary)
@@ -230,7 +265,7 @@ struct TripDetailView: View {
                     .frame(maxWidth: .infinity)
                 }
                 
-                let days = tripViewModel.itineraryDaysForTrip(trip)
+                let days = tripViewModel.itineraryDaysForTrip(currentTrip)
                 ForEach(days) { day in
                     if !day.activities.isEmpty {
                         VoyaraCard {
@@ -269,6 +304,12 @@ struct TripDetailView: View {
         MapView()
             .clipShape(RoundedRectangle(cornerRadius: VoyaraTheme.mediumRadius))
             .padding(VoyaraTheme.spacing16)
+            .onAppear {
+                mapViewModel.fetchPlacesForTrip(currentTrip)
+            }
+            .onChange(of: currentTrip) { _ in
+                mapViewModel.fetchPlacesForTrip(currentTrip)
+            }
     }
     
     private func emptyState(icon: String, title: String, subtitle: String) -> some View {
@@ -287,6 +328,7 @@ struct DaySection: View {
     let day: ItineraryDay
     let trip: Trip
     @EnvironmentObject var tripViewModel: TripViewModel
+    let onEditActivity: (ItineraryActivity, String) -> Void
     
     var currentTrip: Trip { tripViewModel.trips.first(where: { $0.id == trip.id }) ?? trip }
 
@@ -306,9 +348,18 @@ struct DaySection: View {
             }
             
             ForEach(day.activities) { activity in
-                ActivityRow(activity: activity) {
-                    tripViewModel.toggleActivityCompletion(activity, dayId: day.id, trip: currentTrip)
-                }
+                ActivityRow(
+                    activity: activity,
+                    onToggle: {
+                        tripViewModel.toggleActivityCompletion(activity, dayId: day.id, trip: currentTrip)
+                    },
+                    onDelete: {
+                        tripViewModel.deleteActivityFromDay(activity, dayId: day.id, trip: trip)
+                    },
+                    onEdit: {
+                        onEditActivity(activity, day.id)
+                    }
+                )
             }
         }
     }
@@ -318,6 +369,8 @@ struct DaySection: View {
 struct ActivityRow: View {
     let activity: ItineraryActivity
     let onToggle: () -> Void
+    let onDelete: () -> Void
+    let onEdit: () -> Void
     
     var body: some View {
         HStack(spacing: VoyaraTheme.spacing12) {
@@ -346,12 +399,23 @@ struct ActivityRow: View {
         .background(VoyaraColors.surface)
         .cornerRadius(VoyaraTheme.mediumRadius)
         .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
+        .contextMenu {
+            Button(action: onEdit) {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 
 // MARK: - Expense Row
 struct ExpenseRow: View {
     let expense: Expense
+    let onDelete: () -> Void
     
     var body: some View {
         HStack(spacing: VoyaraTheme.spacing12) {
@@ -374,6 +438,11 @@ struct ExpenseRow: View {
         .background(VoyaraColors.surface)
         .cornerRadius(VoyaraTheme.mediumRadius)
         .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+        .contextMenu {
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 
@@ -381,6 +450,8 @@ struct ExpenseRow: View {
 struct PackingItemRow: View {
     let item: PackingItem
     let onToggle: () -> Void
+    let onDelete: () -> Void
+    let onEdit: () -> Void
     
     var body: some View {
         Button(action: onToggle) {
@@ -395,6 +466,16 @@ struct PackingItemRow: View {
             .padding(VoyaraTheme.spacing12)
             .background(VoyaraColors.surface)
             .cornerRadius(VoyaraTheme.smallRadius)
-        }.buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

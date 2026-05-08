@@ -98,7 +98,7 @@ class TripViewModel: ObservableObject {
     }
 
     // MARK: - Trip Management
-    func createTrip(title: String, destination: String, startDate: Date, endDate: Date, budget: Decimal, purpose: String = "") {
+    func createTrip(title: String, destination: String, destinations: [String] = [], startDate: Date, endDate: Date, budget: Decimal, purpose: String = "") {
         guard let uid = userId else { return }
         
         var newTrip = Trip(
@@ -107,12 +107,14 @@ class TripViewModel: ObservableObject {
             title: title,
             description: purpose.isEmpty ? nil : purpose,
             destination: destination,
+            destinations: destinations.isEmpty ? [destination] : destinations,
             startDate: startDate,
             endDate: endDate,
             budget: budget,
             currency: "USD",
             status: .planning,
             coverImageURL: nil,
+            category: nil,
             itineraries: [],
             expenses: [],
             packingItems: [],
@@ -176,6 +178,16 @@ class TripViewModel: ObservableObject {
         if let index = updatedTrip.itineraries.firstIndex(where: { $0.id == dayId }) {
             updatedTrip.itineraries[index].activities.removeAll { $0.id == activity.id }
             saveTripToFirebase(updatedTrip)
+        }
+    }
+    
+    func updateActivity(_ activity: ItineraryActivity, dayId: String, trip: Trip) {
+        var updatedTrip = trip
+        if let dayIndex = updatedTrip.itineraries.firstIndex(where: { $0.id == dayId }) {
+            if let actIndex = updatedTrip.itineraries[dayIndex].activities.firstIndex(where: { $0.id == activity.id }) {
+                updatedTrip.itineraries[dayIndex].activities[actIndex] = activity
+                saveTripToFirebase(updatedTrip)
+            }
         }
     }
     
@@ -269,6 +281,14 @@ class TripViewModel: ObservableObject {
         saveTripToFirebase(updatedTrip)
     }
     
+    func updatePackingItem(_ item: PackingItem, in trip: Trip) {
+        var updatedTrip = trip
+        if let index = updatedTrip.packingItems.firstIndex(where: { $0.id == item.id }) {
+            updatedTrip.packingItems[index] = item
+            saveTripToFirebase(updatedTrip)
+        }
+    }
+    
     func packingItemsForTrip(_ trip: Trip) -> [PackingItem] {
         return trip.packingItems
     }
@@ -294,7 +314,7 @@ class TripViewModel: ObservableObject {
         // 1. Future Trip: Lisbon
         var lisbon = Trip(
             id: UUID().uuidString, userId: uid, title: "Weekend in Lisbon", description: "Pastéis de nata and sunset at Miradouro da Graça", destination: "Lisbon, Portugal",
-            startDate: Calendar.current.date(byAdding: .day, value: 14, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: 18, to: Date())!, budget: 1500, currency: "USD", status: .planning, coverImageURL: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Date(), updatedAt: Date()
+            startDate: Calendar.current.date(byAdding: .day, value: 14, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: 18, to: Date())!, budget: 1500, currency: "USD", status: .planning, coverImageURL: nil, category: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Date(), updatedAt: Date()
         )
         lisbon.itineraries = [ItineraryDay(tripId: lisbon.id, dayNumber: 1, date: lisbon.startDate)]
         lisbon.packingItems = [PackingItem(id: UUID().uuidString, tripId: lisbon.id, name: "Passport", category: "Documents", quantity: 1, isPacked: false)]
@@ -302,7 +322,7 @@ class TripViewModel: ObservableObject {
         // 2. Ongoing Trip: Paris
         var paris = Trip(
             id: UUID().uuidString, userId: uid, title: "Summer in Paris", description: "Eiffel Tower, Louvre, and Seine River", destination: "Paris, France",
-            startDate: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: 5, to: Date())!, budget: 3500, currency: "USD", status: .ongoing, coverImageURL: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Date(), updatedAt: Date()
+            startDate: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: 5, to: Date())!, budget: 3500, currency: "USD", status: .ongoing, coverImageURL: nil, category: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Date(), updatedAt: Date()
         )
         let day1Date = paris.startDate
         let day2Date = Calendar.current.date(byAdding: .day, value: 1, to: day1Date)!
@@ -327,7 +347,7 @@ class TripViewModel: ObservableObject {
         // 3. Past Trip: Tokyo (History)
         var tokyo = Trip(
             id: UUID().uuidString, userId: uid, title: "Tokyo Adventure", description: "Japanese culture, temples, and cuisine", destination: "Tokyo, Japan",
-            startDate: Calendar.current.date(byAdding: .day, value: -40, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: -30, to: Date())!, budget: 4000, currency: "USD", status: .completed, coverImageURL: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Calendar.current.date(byAdding: .day, value: -60, to: Date())!, updatedAt: Date()
+            startDate: Calendar.current.date(byAdding: .day, value: -40, to: Date())!, endDate: Calendar.current.date(byAdding: .day, value: -30, to: Date())!, budget: 4000, currency: "USD", status: .completed, coverImageURL: nil, category: nil, itineraries: [], expenses: [], packingItems: [], createdAt: Calendar.current.date(byAdding: .day, value: -60, to: Date())!, updatedAt: Date()
         )
         tokyo.expenses = [
             Expense(id: UUID().uuidString, tripId: tokyo.id, activityId: nil, title: "Flight to Tokyo", amount: 1500, category: ExpenseCategory.transportation.rawValue, date: tokyo.startDate),

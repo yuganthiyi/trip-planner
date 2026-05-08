@@ -231,6 +231,8 @@ struct FilterChip: View {
                 .background(isSelected ? VoyaraColors.primary : VoyaraColors.surfaceVariant)
                 .cornerRadius(20)
         }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
 
@@ -288,5 +290,63 @@ struct ShimmerModifier: ViewModifier {
 extension View {
     func shimmer() -> some View {
         modifier(ShimmerModifier())
+    }
+}
+
+// MARK: - Destination Suggestion Card
+struct DestinationSuggestionCard: View {
+    let destination: CategoryDestination
+    let color: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                if let urlString = destination.imageURL, let url = URL(string: urlString) {
+                    AsyncImage(url: url) { image in
+                        image.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color(hex: "E5E5E5")
+                    }
+                    .frame(width: 160, height: 120)
+                    .cornerRadius(12)
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(color.opacity(0.1))
+                        .frame(width: 160, height: 120)
+                }
+                
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(color)
+                    .padding(8)
+                    .background(.white.opacity(0.8))
+                    .clipShape(Circle())
+                    .padding(8)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(destination.name)
+                    .font(VoyaraTypography.labelMedium)
+                    .foregroundColor(VoyaraColors.text)
+                Text(destination.country)
+                    .font(VoyaraTypography.captionSmall)
+                    .foregroundColor(VoyaraColors.textSecondary)
+            }
+            
+            HStack(spacing: 4) {
+                Image(systemName: "map.fill")
+                    .font(.system(size: 10))
+                Text("Explore")
+                    .font(VoyaraTypography.captionSmall)
+            }
+            .foregroundColor(color)
+            .padding(.top, 2)
+        }
+        .padding(8)
+        .background(VoyaraColors.surface)
+        .cornerRadius(VoyaraTheme.cornerRadius)
+        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+        .frame(width: 160)
     }
 }

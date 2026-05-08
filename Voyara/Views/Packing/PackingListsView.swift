@@ -4,6 +4,7 @@ struct PackingListsView: View {
     @EnvironmentObject var tripViewModel: TripViewModel
     @State private var selectedTrip: Trip?
     @State private var showAddItem = false
+    @State private var editingItem: PackingItem?
     
     private func currentTrip(for trip: Trip) -> Trip {
         tripViewModel.trips.first(where: { $0.id == trip.id }) ?? trip
@@ -91,6 +92,11 @@ struct PackingListsView: View {
                     AddPackingItemView(trip: currentTrip(for: trip))
                 }
             }
+            .sheet(item: $editingItem) { item in
+                if let trip = selectedTrip {
+                    EditPackingItemView(item: item, trip: currentTrip(for: trip))
+                }
+            }
         }
     }
     
@@ -122,7 +128,18 @@ struct PackingListsView: View {
                         }
                         
                         ForEach(group.items) { item in
-                            PackingItemRow(item: item) { tripViewModel.togglePackingItem(item, in: trip) }
+                            PackingItemRow(
+                                item: item,
+                                onToggle: {
+                                    tripViewModel.togglePackingItem(item, in: trip)
+                                },
+                                onDelete: {
+                                    tripViewModel.deletePackingItem(item, from: trip)
+                                },
+                                onEdit: {
+                                    editingItem = item
+                                }
+                            )
                         }
                     }
                     .padding(.horizontal, VoyaraTheme.spacing24)

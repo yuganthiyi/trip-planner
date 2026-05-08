@@ -114,7 +114,13 @@ struct BudgetTabView: View {
                         VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
                             SectionHeader(title: "Recent Expenses").padding(.horizontal, VoyaraTheme.spacing24)
                             ForEach(tripViewModel.trips.flatMap { $0.expenses }.sorted(by: { $0.date > $1.date }).prefix(10)) { expense in
-                                ExpenseRow(expense: expense).padding(.horizontal, VoyaraTheme.spacing24)
+                                if let trip = tripViewModel.trips.first(where: { $0.id == expense.tripId }) {
+                                    ExpenseRow(expense: expense, onDelete: {
+                                        tripViewModel.deleteExpense(expense, from: trip)
+                                    }).padding(.horizontal, VoyaraTheme.spacing24)
+                                } else {
+                                    ExpenseRow(expense: expense, onDelete: {}).padding(.horizontal, VoyaraTheme.spacing24)
+                                }
                             }
                         }
                         

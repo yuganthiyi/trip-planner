@@ -81,6 +81,7 @@ struct TripsView: View {
                                         TripCard(trip: trip)
                                     }
                                     .buttonStyle(.plain)
+                                    .contentShape(Rectangle())
                                 }
                             }
                             .padding(.horizontal, VoyaraTheme.spacing24)
@@ -169,12 +170,19 @@ struct CreateTripView: View {
     @EnvironmentObject var tripViewModel: TripViewModel
     @Environment(\.dismiss) var dismiss
     @State private var title = ""
-    @State private var destination = ""
+    @State private var destinations: [String] = []
+    @State private var showLocationPicker = false
     @State private var purpose = ""
     @State private var startDate = Date()
     @State private var endDate = Calendar.current.date(byAdding: .day, value: 3, to: Date()) ?? Date()
     @State private var budget: String = ""
     @State private var isLoading = false
+    
+    init(initialDestination: String? = nil) {
+        if let initial = initialDestination {
+            _destinations = State(initialValue: [initial])
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -191,8 +199,57 @@ struct CreateTripView: View {
                         
                         VStack(spacing: VoyaraTheme.spacing16) {
                             CustomTextField("Trip Name", text: $title, icon: "pencil")
-                            CustomTextField("Destination", text: $destination, icon: "mappin.circle")
+                            
+                            // Multi-Destination Section
+                            VStack(alignment: .leading, spacing: VoyaraTheme.spacing8) {
+                                Text("Destinations").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
+                                    .padding(.leading, VoyaraTheme.spacing4)
+                                
+                                VStack(spacing: VoyaraTheme.spacing8) {
+                                    ForEach(destinations, id: \.self) { loc in
+                                        HStack {
+                                            Image(systemName: "mappin.and.ellipse")
+                                                .foregroundColor(VoyaraColors.primary)
+                                                .frame(width: 24)
+                                            Text(loc)
+                                                .font(VoyaraTypography.bodyMedium)
+                                                .foregroundColor(VoyaraColors.text)
+                                                .lineLimit(1)
+                                            Spacer()
+                                            Button(action: { destinations.removeAll { $0 == loc } }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundColor(VoyaraColors.error.opacity(0.8))
+                                            }
+                                        }
+                                        .padding(VoyaraTheme.spacing12)
+                                        .background(VoyaraColors.surfaceVariant)
+                                        .cornerRadius(VoyaraTheme.smallRadius)
+                                    }
+                                    
+                                    Button(action: { showLocationPicker = true }) {
+                                        HStack(spacing: VoyaraTheme.spacing12) {
+                                            Image(systemName: "plus.circle.fill")
+                                                .foregroundColor(VoyaraColors.primary)
+                                                .frame(width: 20)
+                                            Text(destinations.isEmpty ? "Add your first destination" : "Add another destination")
+                                                .font(VoyaraTypography.bodyMedium)
+                                                .foregroundColor(VoyaraColors.textSecondary)
+                                            Spacer()
+                                        }
+                                        .padding(VoyaraTheme.spacing16)
+                                        .background(VoyaraColors.surfaceVariant.opacity(0.6))
+                                        .cornerRadius(VoyaraTheme.mediumRadius)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: VoyaraTheme.mediumRadius)
+                                                .strokeBorder(VoyaraColors.primary.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            
                             CustomTextField("Purpose (optional)", text: $purpose, icon: "tag")
+                            
                             HStack(spacing: VoyaraTheme.spacing12) {
                                 Image(systemName: "dollarsign.circle").foregroundColor(VoyaraColors.textSecondary).frame(width: 20)
                                 TextField("Budget", text: $budget).font(VoyaraTypography.bodyMedium).keyboardType(.decimalPad)
@@ -213,15 +270,25 @@ struct CreateTripView: View {
                         PrimaryButton("Create Trip", isLoading: isLoading) {
                             isLoading = true
                             let budgetVal = Decimal(string: budget) ?? 0
+                            let primaryDest = destinations.first ?? "Unknown"
+                            
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                tripViewModel.createTrip(title: title, destination: destination, startDate: startDate, endDate: endDate, budget: budgetVal, purpose: purpose)
+                                tripViewModel.createTrip(
+                                    title: title,
+                                    destination: primaryDest,
+                                    destinations: destinations,
+                                    startDate: startDate,
+                                    endDate: endDate,
+                                    budget: budgetVal,
+                                    purpose: purpose
+                                )
                                 isLoading = false
                                 dismiss()
                             }
                         }
                         .padding(.horizontal, VoyaraTheme.spacing24)
-                        .disabled(title.isEmpty || destination.isEmpty)
-                        .opacity((title.isEmpty || destination.isEmpty) ? 0.5 : 1)
+                        .disabled(title.isEmpty || destinations.isEmpty)
+                        .opacity((title.isEmpty || destinations.isEmpty) ? 0.5 : 1)
                     }
                 }
             }
@@ -229,6 +296,13 @@ struct CreateTripView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }.foregroundColor(VoyaraColors.primary)
+                }
+            }
+            .sheet(isPresented: $showLocationPicker) {
+                LocationPickerView { selectedLoc in
+                    if !destinations.contains(selectedLoc) {
+                        destinations.append(selectedLoc)
+                    }
                 }
             }
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 // MARK: - Add Activity View
 struct AddActivityView: View {
@@ -14,6 +15,7 @@ struct AddActivityView: View {
     @State private var cost = ""
     @State private var priority: Priority = .medium
     @State private var selectedDayIndex = 0
+    @State private var isSaving = false
     
     var currentTrip: Trip { tripViewModel.trips.first(where: { $0.id == trip.id }) ?? trip }
     
@@ -44,6 +46,8 @@ struct AddActivityView: View {
                                                 .background(category == cat ? cat.color : cat.color.opacity(0.1))
                                                 .cornerRadius(16)
                                             }
+                                            .buttonStyle(.plain)
+                                            .contentShape(Rectangle())
                                         }
                                     }
                                 }
@@ -78,22 +82,38 @@ struct AddActivityView: View {
                         .background(VoyaraColors.surfaceVariant)
                         .cornerRadius(VoyaraTheme.mediumRadius)
                         
-                        PrimaryButton("Add Activity") {
-                            let days = tripViewModel.itineraryDaysForTrip(currentTrip)
-                            guard selectedDayIndex < days.count else { return }
-                            let day = days[selectedDayIndex]
-                            let activity = ItineraryActivity(
-                                dayId: day.id, title: title, startTime: startTime, endTime: endTime,
-                                location: location.isEmpty ? nil : location,
-                                description: description.isEmpty ? nil : description,
-                                category: category, estimatedCost: Decimal(string: cost) ?? 0,
-                                priority: priority
-                            )
-                            tripViewModel.addActivityToDay(activity, dayId: day.id, trip: currentTrip)
-                            dismiss()
+                        // Priority Picker
+                        VoyaraCard {
+                            VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
+                                Text("Priority").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
+                                HStack(spacing: VoyaraTheme.spacing8) {
+                                    ForEach(Priority.allCases, id: \.self) { p in
+                                        Button(action: { priority = p }) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: priority == p ? "circle.inset.filled" : "circle")
+                                                    .font(.system(size: 14))
+                                                Text(p.rawValue)
+                                                    .font(VoyaraTypography.labelSmall)
+                                            }
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 10)
+                                            .background(
+                                                priority == p ? priorityColor(p).opacity(0.12) : VoyaraColors.surfaceVariant
+                                            )
+                                            .foregroundColor(priority == p ? priorityColor(p) : VoyaraColors.textSecondary)
+                                            .cornerRadius(12)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
                         }
-                        .disabled(title.isEmpty)
-                        .opacity(title.isEmpty ? 0.5 : 1)
+                        
+                        PrimaryButton(isSaving ? "Saving..." : "Add Activity") {
+                            saveActivity()
+                        }
+                        .disabled(title.isEmpty || isSaving)
+                        .opacity((title.isEmpty || isSaving) ? 0.5 : 1)
                     }
                     .padding(VoyaraTheme.spacing24)
                 }
@@ -104,6 +124,49 @@ struct AddActivityView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }.foregroundColor(VoyaraColors.primary)
                 }
+            }
+        }
+    }
+    
+    private func priorityColor(_ p: Priority) -> Color {
+        switch p {
+        case .high: return VoyaraColors.error
+        case .medium: return VoyaraColors.warning
+        case .low: return VoyaraColors.success
+        }
+    }
+    
+    private func saveActivity() {
+        isSaving = true
+        let days = tripViewModel.itineraryDaysForTrip(currentTrip)
+        guard selectedDayIndex < days.count else { isSaving = false; return }
+        let day = days[selectedDayIndex]
+        
+        Task {
+            var lat: Double? = nil
+            var lon: Double? = nil
+            
+            if !location.isEmpty {
+                if let placemarks = try? await CLGeocoder().geocodeAddressString(location), let first = placemarks.first?.location {
+                    lat = first.coordinate.latitude
+                    lon = first.coordinate.longitude
+                }
+            }
+            
+            let activity = ItineraryActivity(
+                dayId: day.id, title: title, startTime: startTime, endTime: endTime,
+                location: location.isEmpty ? nil : location,
+                latitude: lat,
+                longitude: lon,
+                description: description.isEmpty ? nil : description,
+                category: category, estimatedCost: Decimal(string: cost) ?? 0,
+                priority: priority
+            )
+            
+            await MainActor.run {
+                tripViewModel.addActivityToDay(activity, dayId: day.id, trip: currentTrip)
+                isSaving = false
+                dismiss()
             }
         }
     }
@@ -153,6 +216,8 @@ struct AddExpenseView: View {
                                             .background(category == cat ? cat.color : cat.color.opacity(0.1))
                                             .cornerRadius(12)
                                         }
+                                        .buttonStyle(.plain)
+                                        .contentShape(Rectangle())
                                     }
                                 }
                             }
@@ -360,13 +425,24 @@ struct AddPackingItemView: View {
                         VoyaraCard {
                             VStack(alignment: .leading, spacing: VoyaraTheme.spacing8) {
                                 Text("Category").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
-                                Picker("Category", selection: $category) {
+                                Menu {
                                     ForEach(categories, id: \.self) { cat in
-                                        Text(cat).tag(cat)
+                                        Button(cat) { category = cat }
                                     }
+                                } label: {
+                                    HStack {
+                                        Text(category)
+                                            .font(VoyaraTypography.bodyMedium)
+                                            .foregroundColor(VoyaraColors.text)
+                                        Spacer()
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(VoyaraColors.textSecondary)
+                                    }
+                                    .padding(VoyaraTheme.spacing12)
+                                    .background(VoyaraColors.surfaceVariant)
+                                    .cornerRadius(VoyaraTheme.smallRadius)
                                 }
-                                .pickerStyle(.menu)
-                                .tint(VoyaraColors.primary)
                             }
                         }
                         
@@ -395,6 +471,244 @@ struct AddPackingItemView: View {
                 }
             }
             .navigationTitle("Add Packing Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }.foregroundColor(VoyaraColors.primary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Edit Activity View
+struct EditActivityView: View {
+    let trip: Trip
+    let activity: ItineraryActivity
+    let dayId: String
+    @EnvironmentObject var tripViewModel: TripViewModel
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var title: String
+    @State private var location: String
+    @State private var description: String
+    @State private var category: ActivityCategory
+    @State private var startTime: Date
+    @State private var endTime: Date
+    @State private var cost: String
+    @State private var priority: Priority
+    @State private var isSaving = false
+    
+    init(trip: Trip, activity: ItineraryActivity, dayId: String) {
+        self.trip = trip
+        self.activity = activity
+        self.dayId = dayId
+        _title = State(initialValue: activity.title)
+        _location = State(initialValue: activity.location ?? "")
+        _description = State(initialValue: activity.description ?? "")
+        _category = State(initialValue: activity.category)
+        _startTime = State(initialValue: activity.startTime)
+        _endTime = State(initialValue: activity.endTime)
+        _cost = State(initialValue: "\(NSDecimalNumber(decimal: activity.estimatedCost).doubleValue)")
+        _priority = State(initialValue: activity.priority)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                VoyaraColors.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: VoyaraTheme.spacing16) {
+                        CustomTextField("Activity Name", text: $title, icon: "star")
+                        CustomTextField("Location", text: $location, icon: "mappin")
+                        CustomTextField("Description", text: $description, icon: "doc.text")
+                        
+                        VoyaraCard {
+                            VStack(alignment: .leading, spacing: VoyaraTheme.spacing8) {
+                                Text("Category").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: VoyaraTheme.spacing8) {
+                                        ForEach(ActivityCategory.allCases, id: \.self) { cat in
+                                            Button(action: { category = cat }) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: cat.icon).font(.system(size: 12))
+                                                    Text(cat.rawValue).font(VoyaraTypography.captionSmall)
+                                                }
+                                                .foregroundColor(category == cat ? .white : cat.color)
+                                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                                .background(category == cat ? cat.color : cat.color.opacity(0.1))
+                                                .cornerRadius(16)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        VoyaraCard {
+                            VStack(spacing: VoyaraTheme.spacing12) {
+                                DatePicker("Start", selection: $startTime, displayedComponents: .hourAndMinute).tint(VoyaraColors.primary)
+                                Divider()
+                                DatePicker("End", selection: $endTime, displayedComponents: .hourAndMinute).tint(VoyaraColors.primary)
+                            }
+                        }
+                        
+                        HStack(spacing: VoyaraTheme.spacing12) {
+                            Image(systemName: "dollarsign.circle").foregroundColor(VoyaraColors.textSecondary)
+                            TextField("Estimated Cost", text: $cost).keyboardType(.decimalPad)
+                        }
+                        .padding(VoyaraTheme.spacing16)
+                        .background(VoyaraColors.surfaceVariant)
+                        .cornerRadius(VoyaraTheme.mediumRadius)
+                        
+                        VoyaraCard {
+                            VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
+                                Text("Priority").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
+                                HStack(spacing: VoyaraTheme.spacing8) {
+                                    ForEach(Priority.allCases, id: \.self) { p in
+                                        Button(action: { priority = p }) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: priority == p ? "circle.inset.filled" : "circle")
+                                                    .font(.system(size: 14))
+                                                Text(p.rawValue)
+                                                    .font(VoyaraTypography.labelSmall)
+                                            }
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 10)
+                                            .background(
+                                                priority == p ? priorityColor(p).opacity(0.12) : VoyaraColors.surfaceVariant
+                                            )
+                                            .foregroundColor(priority == p ? priorityColor(p) : VoyaraColors.textSecondary)
+                                            .cornerRadius(12)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        PrimaryButton(isSaving ? "Saving..." : "Update Activity") {
+                            updateActivity()
+                        }
+                        .disabled(title.isEmpty || isSaving)
+                    }
+                    .padding(VoyaraTheme.spacing24)
+                }
+            }
+            .navigationTitle("Edit Activity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }.foregroundColor(VoyaraColors.primary)
+                }
+            }
+        }
+    }
+    
+    private func priorityColor(_ p: Priority) -> Color {
+        switch p {
+        case .high: return VoyaraColors.error
+        case .medium: return VoyaraColors.warning
+        case .low: return VoyaraColors.success
+        }
+    }
+    
+    private func updateActivity() {
+        isSaving = true
+        let costVal = Decimal(string: cost) ?? 0
+        var updated = activity
+        updated.title = title
+        updated.location = location
+        updated.description = description
+        updated.category = category
+        updated.startTime = startTime
+        updated.endTime = endTime
+        updated.estimatedCost = costVal
+        updated.priority = priority
+        
+        tripViewModel.updateActivity(updated, dayId: dayId, trip: trip)
+        dismiss()
+    }
+}
+
+// MARK: - Edit Packing Item View
+struct EditPackingItemView: View {
+    let item: PackingItem
+    let trip: Trip
+    @EnvironmentObject var tripViewModel: TripViewModel
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var name: String
+    @State private var category: String
+    @State private var quantity: Int
+    
+    let categories = ["Clothing", "Documents", "Electronics", "Toiletries", "Accessories", "Other"]
+    
+    init(item: PackingItem, trip: Trip) {
+        self.item = item
+        self.trip = trip
+        _name = State(initialValue: item.name)
+        _category = State(initialValue: item.category)
+        _quantity = State(initialValue: item.quantity)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                VoyaraColors.background.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: VoyaraTheme.spacing16) {
+                        CustomTextField("Item Name", text: $name, icon: "bag")
+                        
+                        VoyaraCard {
+                            VStack(alignment: .leading, spacing: VoyaraTheme.spacing8) {
+                                Text("Category").font(VoyaraTypography.labelMedium).foregroundColor(VoyaraColors.text)
+                                Menu {
+                                    ForEach(categories, id: \.self) { cat in
+                                        Button(cat) { category = cat }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(category)
+                                            .font(VoyaraTypography.bodyMedium)
+                                            .foregroundColor(VoyaraColors.text)
+                                        Spacer()
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(VoyaraColors.textSecondary)
+                                    }
+                                    .padding(VoyaraTheme.spacing12)
+                                    .background(VoyaraColors.surfaceVariant)
+                                    .cornerRadius(VoyaraTheme.smallRadius)
+                                }
+                            }
+                        }
+                        
+                        VoyaraCard {
+                            Stepper(value: $quantity, in: 1...20) {
+                                HStack {
+                                    Text("Quantity").font(VoyaraTypography.bodyMedium).foregroundColor(VoyaraColors.text)
+                                    Spacer()
+                                    Text("\(quantity)").font(VoyaraTypography.headlineMedium).foregroundColor(VoyaraColors.primary)
+                                }
+                            }
+                        }
+                        
+                        PrimaryButton("Save Changes") {
+                            var updatedItem = item
+                            updatedItem.name = name
+                            updatedItem.category = category
+                            updatedItem.quantity = quantity
+                            tripViewModel.updatePackingItem(updatedItem, in: trip)
+                            dismiss()
+                        }
+                        .disabled(name.isEmpty)
+                    }
+                    .padding(VoyaraTheme.spacing24)
+                }
+            }
+            .navigationTitle("Edit Item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

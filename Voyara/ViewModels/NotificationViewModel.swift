@@ -140,7 +140,7 @@ class NotificationViewModel: NSObject, ObservableObject, UNUserNotificationCente
                 guard let data = try? JSONSerialization.data(withJSONObject: doc.data()),
                       let trip = try? JSONDecoder().decode(Trip.self, from: data) else { continue }
                 
-                // Schedule a reminder 1 day before the trip
+                // Schedule a reminder 1 day before the trip starts
                 let reminderDate = Calendar.current.date(byAdding: .day, value: -1, to: trip.startDate) ?? trip.startDate
                 if reminderDate > Date() {
                     self?.scheduleNotification(
@@ -160,6 +160,31 @@ class NotificationViewModel: NSObject, ObservableObject, UNUserNotificationCente
                         date: packingDate,
                         identifier: "packing_reminder_\(trip.id)"
                     )
+                }
+                
+                // Budget Alert check
+                let spent = trip.expenses.reduce(0) { $0 + $1.amount }
+                if trip.budget > 0, (spent / trip.budget) > 0.90 {
+                    self?.scheduleNotification(
+                        title: "Budget Warning ⚠️",
+                        body: "You've used over 90% of your budget for \"\(trip.title)\".",
+                        date: Date().addingTimeInterval(3600), // Fire in an hour
+                        identifier: "budget_warning_\(trip.id)"
+                    )
+                }
+                
+                // Activity Reminders
+                let allActivities = trip.itineraries.flatMap { $0.activities }
+                for act in allActivities {
+                    let actReminderDate = Calendar.current.date(byAdding: .hour, value: -1, to: act.startTime) ?? act.startTime
+                    if actReminderDate > Date() {
+                        self?.scheduleNotification(
+                            title: "Upcoming Activity 📅",
+                            body: "\(act.title) starts in 1 hour.",
+                            date: actReminderDate,
+                            identifier: "activity_reminder_\(act.id)"
+                        )
+                    }
                 }
             }
         }

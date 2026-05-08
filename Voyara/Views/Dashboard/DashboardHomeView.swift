@@ -5,6 +5,7 @@ struct DashboardHomeView: View {
     @EnvironmentObject var tripViewModel: TripViewModel
     @EnvironmentObject var weatherViewModel: WeatherViewModel
     @EnvironmentObject var notificationViewModel: NotificationViewModel
+    @EnvironmentObject var categoryViewModel: CategoryViewModel
     @Binding var selectedTab: Int
     @State private var showNotifications = false
     @State private var showWeatherDetail = false
@@ -80,6 +81,7 @@ struct DashboardHomeView: View {
                 withAnimation(.easeOut(duration: 0.6).delay(0.2)) {
                     animateCards = true
                 }
+                weatherViewModel.refreshWeather()
             }
         }
     }
@@ -130,6 +132,12 @@ struct DashboardHomeView: View {
             TextField("Search destinations, trips...", text: $searchText)
                 .font(VoyaraTypography.bodyMedium)
                 .foregroundColor(VoyaraColors.text)
+                .onSubmit {
+                    if !searchText.isEmpty {
+                        // Search on map
+                        showMapView = true
+                    }
+                }
         }
         .padding(VoyaraTheme.spacing12)
         .background(VoyaraColors.surfaceVariant)
@@ -141,7 +149,16 @@ struct DashboardHomeView: View {
     private var weatherWidget: some View {
         Button(action: { showWeatherDetail = true }) {
             HStack(spacing: VoyaraTheme.spacing16) {
-                if let weather = weatherViewModel.currentWeather {
+                if weatherViewModel.isLoading {
+                    HStack(spacing: VoyaraTheme.spacing8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Fetching weather...")
+                            .font(VoyaraTypography.bodyMedium)
+                            .foregroundColor(VoyaraColors.textSecondary)
+                    }
+                    Spacer()
+                } else if let weather = weatherViewModel.currentWeather {
                     VStack(alignment: .leading, spacing: VoyaraTheme.spacing4) {
                         HStack(spacing: VoyaraTheme.spacing8) {
                             Image(systemName: weather.conditionIcon)
@@ -153,9 +170,10 @@ struct DashboardHomeView: View {
                                 .foregroundColor(VoyaraColors.text)
                         }
                         
-                        Text(weather.condition)
+                        Text("\(weather.condition) • \(weatherViewModel.locationName)")
                             .font(VoyaraTypography.bodySmall)
                             .foregroundColor(VoyaraColors.textSecondary)
+                            .lineLimit(1)
                     }
                     
                     Spacer()
@@ -176,6 +194,22 @@ struct DashboardHomeView: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(VoyaraColors.textSecondary)
+                } else if let error = weatherViewModel.errorMessage {
+                    HStack(spacing: VoyaraTheme.spacing8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(VoyaraColors.warning)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Weather Unavailable")
+                                .font(VoyaraTypography.bodyMedium)
+                                .foregroundColor(VoyaraColors.text)
+                            Text(error)
+                                .font(VoyaraTypography.captionSmall)
+                                .foregroundColor(VoyaraColors.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
                 } else {
                     HStack(spacing: VoyaraTheme.spacing8) {
                         Image(systemName: "cloud.sun.fill")
@@ -322,27 +356,47 @@ struct DashboardHomeView: View {
         }
     }
     
-    // MARK: - Categories
+    // MARK: - Categories (Now tappable with Firebase data)
     private var categoriesSection: some View {
         VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
             SectionHeader(title: "Explore Categories")
                 .padding(.horizontal, VoyaraTheme.spacing24)
             
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-            ], spacing: VoyaraTheme.spacing12) {
-                CategoryCard(icon: "mountain.2.fill", title: "Adventure", count: 24, color: VoyaraColors.success)
-                CategoryCard(icon: "building.2.fill", title: "City Break", count: 18, color: VoyaraColors.primary)
-                CategoryCard(icon: "sun.max.fill", title: "Beach", count: 31, color: VoyaraColors.warning)
-                CategoryCard(icon: "fork.knife", title: "Food Tour", count: 15, color: VoyaraColors.secondary)
+            if categoryViewModel.categories.isEmpty {
+                // Fallback while loading from Firebase
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible()),
+                ], spacing: VoyaraTheme.spacing12) {
+                    CategoryCardPlaceholder(icon: "mountain.2.fill", title: "Adventure", color: VoyaraColors.success)
+                    CategoryCardPlaceholder(icon: "building.2.fill", title: "City Break", color: VoyaraColors.primary)
+                    CategoryCardPlaceholder(icon: "sun.max.fill", title: "Beach", color: VoyaraColors.warning)
+                    CategoryCardPlaceholder(icon: "fork.knife", title: "Food Tour", color: VoyaraColors.secondary)
+                }
+                .padding(.horizontal, VoyaraTheme.spacing24)
+            } else {
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible()),
+                ], spacing: VoyaraTheme.spacing12) {
+                    ForEach(categoryViewModel.categories) { category in
+                        NavigationLink(destination: CategoryExploreView(category: category)) {
+                            CategoryCard(
+                                icon: category.icon,
+                                title: category.title,
+                                count: category.destinationCount,
+                                color: category.color
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                    }
+                }
+                .padding(.horizontal, VoyaraTheme.spacing24)
             }
-            .padding(.horizontal, VoyaraTheme.spacing24)
         }
     }
 }
-
-// MARK: - Stat Card
 struct StatCard: View {
     let icon: String
     let value: String
@@ -394,6 +448,8 @@ struct QuickActionCard: View {
             }
             .frame(width: 80)
         }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
 
@@ -504,7 +560,7 @@ struct TripProgressCard: View {
     }
 }
 
-// MARK: - Category Card
+// MARK: - Category Card (Tappable)
 struct CategoryCard: View {
     let icon: String
     let title: String
@@ -528,6 +584,50 @@ struct CategoryCard: View {
                 Text("\(count) destinations")
                     .font(VoyaraTypography.captionSmall)
                     .foregroundColor(VoyaraColors.textSecondary)
+            }
+            
+            // Explore indicator
+            HStack(spacing: 4) {
+                Text("Explore")
+                    .font(VoyaraTypography.captionSmall)
+                    .foregroundColor(color)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(color)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VoyaraTheme.spacing16)
+        .background(VoyaraColors.surface)
+        .cornerRadius(VoyaraTheme.cornerRadius)
+        .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
+    }
+}
+
+// MARK: - Category Card Placeholder (shown while loading)
+struct CategoryCardPlaceholder: View {
+    let icon: String
+    let title: String
+    let color: Color
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: VoyaraTheme.spacing12) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(color)
+                .frame(width: 44, height: 44)
+                .background(color.opacity(0.12))
+                .cornerRadius(VoyaraTheme.mediumRadius)
+            
+            VStack(alignment: .leading, spacing: VoyaraTheme.spacing2) {
+                Text(title)
+                    .font(VoyaraTypography.headlineSmall)
+                    .foregroundColor(VoyaraColors.text)
+                
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(VoyaraColors.surfaceVariant)
+                    .frame(width: 80, height: 10)
+                    .shimmer()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

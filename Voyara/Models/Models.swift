@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 // MARK: - Trip Model
 struct Trip: Identifiable, Codable, Hashable {
@@ -7,12 +8,14 @@ struct Trip: Identifiable, Codable, Hashable {
     var title: String
     var description: String?
     var destination: String
+    var destinations: [String]? = []
     var startDate: Date
     var endDate: Date
     var budget: Decimal
     var currency: String
     var status: TripStatus
     var coverImageURL: String?
+    var category: String?
     var itineraries: [ItineraryDay]
     var expenses: [Expense]
     var packingItems: [PackingItem]
@@ -94,6 +97,8 @@ struct ItineraryActivity: Identifiable, Codable, Equatable {
     var startTime: Date
     var endTime: Date
     var location: String?
+    var latitude: Double?
+    var longitude: Double?
     var description: String?
     var category: ActivityCategory
     var estimatedCost: Decimal
@@ -102,14 +107,17 @@ struct ItineraryActivity: Identifiable, Codable, Equatable {
     var notes: String?
     
     init(id: String = UUID().uuidString, dayId: String, title: String, startTime: Date, endTime: Date,
-         location: String? = nil, description: String? = nil, category: ActivityCategory = .sightseeing,
-         estimatedCost: Decimal = 0, isCompleted: Bool = false, priority: Priority = .medium, notes: String? = nil) {
+         location: String? = nil, latitude: Double? = nil, longitude: Double? = nil,
+         description: String? = nil, category: ActivityCategory,
+         estimatedCost: Decimal, isCompleted: Bool = false, priority: Priority = .medium, notes: String? = nil) {
         self.id = id
         self.dayId = dayId
         self.title = title
         self.startTime = startTime
         self.endTime = endTime
         self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
         self.description = description
         self.category = category
         self.estimatedCost = estimatedCost
@@ -120,6 +128,11 @@ struct ItineraryActivity: Identifiable, Codable, Equatable {
     
     static func == (lhs: ItineraryActivity, rhs: ItineraryActivity) -> Bool {
         lhs.id == rhs.id
+    }
+    
+    var coordinate: CLLocationCoordinate2D? {
+        guard let lat = latitude, let lon = longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 }
 
@@ -243,15 +256,20 @@ struct WeatherInfo: Identifiable {
     var humidity: Double
     var windSpeed: Double
     var uvIndex: Double
+    var latitude: Double?
+    var longitude: Double?
+    var locationName: String?
     
     var conditionIcon: String {
         switch condition.lowercased() {
         case "sunny", "clear": return "sun.max.fill"
         case "cloudy", "overcast": return "cloud.fill"
-        case "partly cloudy": return "cloud.sun.fill"
-        case "rainy", "rain": return "cloud.rain.fill"
+        case "partly cloudy", "mainly clear": return "cloud.sun.fill"
+        case "rainy", "rain", "light rain", "moderate rain", "heavy rain": return "cloud.rain.fill"
+        case "drizzle", "light drizzle": return "cloud.drizzle.fill"
         case "thunderstorm": return "cloud.bolt.rain.fill"
-        case "snowy", "snow": return "cloud.snow.fill"
+        case "snowy", "snow", "light snow": return "cloud.snow.fill"
+        case "fog", "foggy", "mist": return "cloud.fog.fill"
         default: return "sun.max.fill"
         }
     }
@@ -260,9 +278,11 @@ struct WeatherInfo: Identifiable {
         switch condition.lowercased() {
         case "sunny", "clear": return .yellow
         case "cloudy", "overcast": return .gray
-        case "rainy", "rain": return .blue
+        case "partly cloudy", "mainly clear": return Color(red: 0.6, green: 0.7, blue: 0.9)
+        case "rainy", "rain", "light rain", "moderate rain", "heavy rain", "drizzle": return .blue
         case "thunderstorm": return .purple
-        case "snowy", "snow": return .cyan
+        case "snowy", "snow", "light snow": return .cyan
+        case "fog", "foggy", "mist": return .gray
         default: return .yellow
         }
     }
@@ -278,10 +298,28 @@ struct DailyForecast: Identifiable {
     var conditionIcon: String {
         switch condition.lowercased() {
         case "sunny", "clear": return "sun.max.fill"
-        case "cloudy": return "cloud.fill"
-        case "partly cloudy": return "cloud.sun.fill"
-        case "rainy": return "cloud.rain.fill"
+        case "cloudy", "overcast": return "cloud.fill"
+        case "partly cloudy", "mainly clear": return "cloud.sun.fill"
+        case "rainy", "rain", "light rain", "moderate rain", "heavy rain": return "cloud.rain.fill"
+        case "drizzle", "light drizzle", "freezing drizzle": return "cloud.drizzle.fill"
+        case "thunderstorm": return "cloud.bolt.rain.fill"
+        case "snowy", "snow", "light snow", "heavy snow": return "cloud.snow.fill"
+        case "fog": return "cloud.fog.fill"
+        case "freezing rain": return "cloud.sleet.fill"
         default: return "sun.max.fill"
+        }
+    }
+    
+    var conditionColor: Color {
+        switch condition.lowercased() {
+        case "sunny", "clear": return .yellow
+        case "cloudy", "overcast": return .gray
+        case "partly cloudy", "mainly clear": return Color(red: 0.6, green: 0.7, blue: 0.9)
+        case "rainy", "rain", "light rain", "moderate rain", "heavy rain", "drizzle": return .blue
+        case "thunderstorm": return .purple
+        case "snowy", "snow", "light snow", "heavy snow": return .cyan
+        case "fog": return .gray
+        default: return .yellow
         }
     }
 }
@@ -299,6 +337,86 @@ struct WeatherSuggestion: Identifiable {
         case clothing = "Clothing"
         case activity = "Activity"
         case packing = "Packing"
+    }
+}
+
+// MARK: - Explore Category
+struct ExploreCategory: Identifiable, Codable {
+    let id: String
+    var title: String
+    var icon: String
+    var colorHex: String
+    var destinationCount: Int
+    var destinations: [CategoryDestination]
+    
+    init(id: String = UUID().uuidString, title: String, icon: String, colorHex: String, destinationCount: Int = 0, destinations: [CategoryDestination] = []) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.colorHex = colorHex
+        self.destinationCount = destinationCount
+        self.destinations = destinations
+    }
+    
+    var color: SwiftUI.Color {
+        Color(hex: colorHex) ?? VoyaraColors.primary
+    }
+}
+
+struct CategoryDestination: Identifiable, Codable {
+    let id: String
+    var name: String
+    var country: String
+    var latitude: Double
+    var longitude: Double
+    var description: String
+    var rating: Double
+    var imageURL: String?
+    var weatherSuitability: String?
+    
+    init(id: String = UUID().uuidString, name: String, country: String, latitude: Double, longitude: Double, description: String, rating: Double, imageURL: String? = nil, weatherSuitability: String? = nil) {
+        self.id = id
+        self.name = name
+        self.country = country
+        self.latitude = latitude
+        self.longitude = longitude
+        self.description = description
+        self.rating = rating
+        self.imageURL = imageURL
+        self.weatherSuitability = weatherSuitability
+    }
+}
+
+// MARK: - Weather Activity
+struct WeatherActivity: Identifiable {
+    let id = UUID().uuidString
+    var title: String
+    var description: String
+    var icon: String
+    var category: ActivityCategory
+    var suitableConditions: [String]
+    var temperatureRange: ClosedRange<Double>
+    var isOutdoor: Bool
+    
+    var suitabilityColor: SwiftUI.Color {
+        isOutdoor ? VoyaraColors.success : VoyaraColors.primary
+    }
+}
+
+// MARK: - Color Hex Extension
+extension Color {
+    init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
+        
+        var rgb: UInt64 = 0
+        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
+        
+        let r = Double((rgb & 0xFF0000) >> 16) / 255.0
+        let g = Double((rgb & 0x00FF00) >> 8) / 255.0
+        let b = Double(rgb & 0x0000FF) / 255.0
+        
+        self.init(red: r, green: g, blue: b)
     }
 }
 
